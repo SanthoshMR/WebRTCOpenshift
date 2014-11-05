@@ -1,0 +1,26 @@
+{
+  "name": "WebRTC",
+  "version": "0.0.0",
+  "description": "Demos for the JSChannel October Meetup - Openshift",
+  "main": "index.js",
+  "devDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SanthoshMR/WebRTCOpenshift.git"
+  },
+  "keywords": [
+    "WebRTC",
+    "JSChannel-October",
+    "Santhosh"
+  ],
+  "author": "Santhosh Reddy",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/SanthoshMR/WebRTCOpenshift/issues"
+  },
+  "homepage": "https://github.com/SanthoshMR/WebRTCOpenshift",
+  "dependencies": {
+    "node-static": "^0.7.6",
+    "socket.io": "^1.1.0"
+  }
+}

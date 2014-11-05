@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>JSChannel - WebRTC Fundamentals</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta name="description" content="Demos for the JSChannel WebRTC October Meetup">
+    <meta name="author" content="Santhosh Reddy">
+    <link href="/lib/bs3.2/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+	<div class="navbar navbar-default navbar-fixed-top" role="navigation">
+		<div class="container-fluid">
+			<div class="navbar-header">
+			  <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target=".navbar-collapse">
+					<span class="sr-only">Toggle navigation</span>
+					<span class="icon-bar"></span>
+					<span class="icon-bar"></span>
+					<span class="icon-bar"></span>
+			  </button>
+			  <a class="navbar-brand" href="/">JSChannel WebRTC</a>
+			</div>
+			<div class="collapse navbar-collapse">
+				<ul class="nav navbar-nav">
+					<li><a href="/1/">Get User Media &amp; Constraints</a></li>
+					<li class="active"><a href="#">Peer Connections</a></li>
+					<li><a href="/3/">Data Channels</a></li>
+					<li><a href="/4/">Signaling</a></li>
+					<li><a href="/5/">SimpleWebRTC</a></li>
+				</ul>
+			</div><!--/.nav-collapse -->
+		</div>
+	</div>
+	<br />
+	<div class="container-fluid">
+		<div class="row">
+			<div class="col-sm-12">
+				<button id="start" class="btn btn-sm btn-default"><i class="glyphicon glyphicon-off text-primary"></i> Start</button>
+				<button id="call" class="btn btn-sm btn-default"><i class="glyphicon glyphicon-play text-success"></i> Call</button>
+				<button id="hangup" class="btn btn-sm btn-default"><i class="glyphicon glyphicon-ban-circle text-danger"></i> Hangup</button>
+			</div>
+		</div>
+		<hr />
+		<div class="row">
+			<div class="col-sm-6"><h4>Local Video</h4></div>
+			<div class="col-sm-6"><h4>Remote Video (Mocked)</h4></div>
+		</div>
+		<div class="row">
+			<div class="col-sm-6">
+				<video id="localVideo" autoplay></video>
+			</div>
+			<div class="col-sm-6">
+				<video id="remoteVideo" autoplay></video>
+			</div>
+		</div>
+	</div>
+
+    <script src='/lib/adapter/adapter.js'></script>
+	<script>
+		// JavaScript variables holding stream and connection information 
+		var localStream, localPeerConnection, remotePeerConnection;
+
+		// JavaScript variables associated with HTML5 video elements in the page 
+		var localVideo = document.getElementById("localVideo");
+		var remoteVideo = document.getElementById("remoteVideo");
+
+		// JavaScript variables assciated with call management buttons in the page 
+		var startButton = document.getElementById("start"); 
+		var callButton = document.getElementById("call"); 
+		var hangupButton = document.getElementById("hangup");
+
+		// Just allow the user to click on the Call button at start-up 
+		startButton.disabled = false; 
+		callButton.disabled = true; 
+		hangupButton.disabled = true;
+
+		// Associate JavaScript handlers with click events on the buttons 
+		startButton.onclick = start; 
+		callButton.onclick = call; 
+		hangupButton.onclick = hangup;
+
+		// Utility function for logging to console.
+		function log(text) {
+			console.log((performance.now() / 1000).toFixed(3) + ": " + text);
+		}
+
+		// getUserMedia success callback.
+		function successCallback(stream){
+			log("Received local stream");
+			// Note that the adapter.js takes care of browser inconsistencies.
+			localVideo.src = URL.createObjectURL(stream);
+			localStream = stream;
+
+			// Enable the call button.
+			callButton.disabled = false;
+		}
+
+		// Triggers all actions - start button callback.
+		function start() {
+			log("Requesting local stream");
+			startButton.disabled = true;
+			// Enable both audio & video & call getUserMedia
+			getUserMedia({audio:true, video:true}, successCallback,
+			function(error) {
+				log("getUserMedia error: ", error);
+			});
+		}
+
+		// Enabled upon successful completion of start button handler.
+		function call() {
+			callButton.disabled = true;
+
+			// Enable the hangup button
+			hangupButton.disabled = false;
+			log("Starting call");
+
+			// Log audio & video devices info
+			if (localStream.getVideoTracks().length > 0) {
+				log('Using video device: ' + localStream.getVideoTracks()[0].label);
+			}
+			if (localStream.getAudioTracks().length > 0) {
+				log('Using audio device: ' + localStream.getAudioTracks()[0].label);
+			}
+
+			// Optional configuration string associated with NAT traversal setup.
+			var servers = null;
+
+			// Create the local PeerConnection object
+			localPeerConnection = new RTCPeerConnection(servers);
+			log("Created local peer connection object localPeerConnection");
+
+			// Add an handler associated with ICE protocol events.
+			localPeerConnection.onicecandidate = gotLocalIceCandidate;
+
+			// Add the local stream to local PeerConnection.
+			localPeerConnection.addStream(localStream);
+
+			// Repeate the same for remote PeerConnection object.
+			remotePeerConnection = new RTCPeerConnection(servers);
+			log("Created remote peer connection object remotePeerConnection");
+			remotePeerConnection.onicecandidate = gotRemoteIceCandidate;
+
+			// This handler will be activated as soon as the remote stream becomes available.
+			remotePeerConnection.onaddstream = gotRemoteStream;
+
+			// Create an offer which will be sent as soon as the local SDP is ready.
+			log("Added localStream to localPeerConnection");
+			localPeerConnection.createOffer(gotLocalDescription,handleError);
+		}
+
+		// Handler which will be activated as soon as the local SDP becomes available.
+		function gotLocalDescription(description){
+			// Add the local description to the local connection.
+			localPeerConnection.setLocalDescription(description);
+			log("Offer from localPeerConnection: \n" + description.sdp);
+			// ...do the same with the 'pseudoremote' PeerConnection  
+			// Note: this is the part that will have to be changed if you want the communicating peers to 
+			// become remote (which calls for the setup of a proper signaling channel)
+			remotePeerConnection.setRemoteDescription(description);
+
+			// Create the answer to the received offer based on the local description.
+			remotePeerConnection.createAnswer(gotRemoteDescription,handleError);
+		}
+
+		// Handler which will be activated when the remote SDP becomes available.
+		function gotRemoteDescription(description){
+			// Set the remote description as the local description of the remote connection.
+			remotePeerConnection.setLocalDescription(description);
+			log("Answer from remotePeerConnection: \n" + description.sdp);
+			// Conversely set the remote description as the remote description of the local connection.
+			localPeerConnection.setRemoteDescription(description);
+		}
+
+		// Hang up the call by closing all connections & release all the variables.
+		function hangup() {
+			log("Ending call");
+			localPeerConnection.close();
+			remotePeerConnection.close();
+			localPeerConnection = null;
+			remotePeerConnection = null;
+			hangupButton.disabled = true;
+			callButton.disabled = false;
+		}
+
+		// Handler to be called when the remote stream becomes available.
+		function gotRemoteStream(event){
+			remoteVideo.src = URL.createObjectURL(event.stream);
+			log("Received remote stream");
+		}
+
+		// Handler to be called when a local ICE candidate becomes available.
+		function gotLocalIceCandidate(event){
+			if (event.candidate) {
+				// Add the candidate to the remote connection.
+				remotePeerConnection.addIceCandidate(new RTCIceCandidate(event.candidate));
+				log("Local ICE candidate: \n" + event.candidate.candidate);
+			}
+		}
+
+		// Handler to be called when a remote ICE candidate becomes available.
+		function gotRemoteIceCandidate(event){
+			if (event.candidate) {
+				// Add the candidate to the local connection.
+				localPeerConnection.addIceCandidate(new RTCIceCandidate(event.candidate));
+				log("Remote ICE candidate: \n " + event.candidate.candidate);
+			}
+		}
+
+		function handleError(){}
+
+	</script>
+</body>
+</html>

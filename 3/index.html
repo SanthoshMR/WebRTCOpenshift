@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>JSChannel - WebRTC Fundamentals</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta name="description" content="Demos for the JSChannel WebRTC October Meetup">
+	<meta name="author" content="Santhosh Reddy">
+	<link href="/lib/bs3.2/css/bootstrap.min.css" rel="stylesheet">
+	<link href="/assets/css/app.css" rel="stylesheet" >
+</head>
+<body>
+	<div class="navbar navbar-default navbar-fixed-top" role="navigation">
+		<div class="container-fluid">
+			<div class="navbar-header">
+				<button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target=".navbar-collapse">
+					<span class="sr-only">Toggle navigation</span>
+					<span class="icon-bar"></span>
+					<span class="icon-bar"></span>
+					<span class="icon-bar"></span>
+				</button>
+				<a class="navbar-brand" href="/">JSChannel WebRTC</a>
+			</div>
+			<div class="collapse navbar-collapse">
+				<ul class="nav navbar-nav">
+					<li><a href="/1/">Get User Media &amp; Constraints</a></li>
+					<li><a href="/2/">Peer Connections</a></li>
+					<li class="active"><a href="#">Data Channels</a></li>
+					<li><a href="/4/">Signaling</a></li>
+					<li><a href="/5/">SimpleWebRTC</a></li>
+				</ul>
+			</div><!--/.nav-collapse -->
+		</div>
+	</div>
+	<br />
+	<div class="container-fluid">
+		<div class="row">
+			<div class="col-sm-3">
+				<h4>Local:</h4>
+				<textarea name="localText" class="form-control" id="dataChannelSend" disabled="true"></textarea>
+			</div>
+			<div class="col-sm-3">
+				<h4>Remote:</h4>
+				<textarea name="remoteText" class="form-control" id="dataChannelReceive" disabled="true"></textarea>
+			</div>
+		</div>
+		<hr />
+		<div class="row">
+			<div class="col-sm-6">
+				<button type="button" id="startButton" class="btn btn-default btn-sm"><i class="glyphicon glyphicon-off text-primary"></i> Start</button>
+				<button type="button" id="sendButton" class="btn btn-default btn-sm"><i class="glyphicon glyphicon-send text-success"></i> Send</button>
+				<button type="button" id="closeButton" class="btn btn-default btn-sm"><i class="glyphicon glyphicon-ban-circle text-danger"></i> Stop</button>
+			</div>
+		</div>
+		<hr />
+		<div class="row">
+			<div class="col-sm-12">
+				<div class="alert alert-info">
+					<strong>Logs:</strong>
+					<div id="log"></div>
+				</div>
+			</div>
+		</div>
+	</div>
+	<script src="/lib/adapter/adapter.js"></script>
+	<script src="http://localhost:2014/socket.io/socket.io.js"></script>
+	<script>
+		// Variables associated with send & receive channels.
+		var sendChannel, receiveChannel;
+
+		// Demo buttons
+		var startButton = document.getElementById("startButton");
+		var sendButton = document.getElementById("sendButton");
+		var closeButton = document.getElementById("closeButton");
+
+		// Enable the start button on startup.
+		startButton.disabled = false;
+		sendButton.disabled = true;
+		closeButton.disabled = true;
+
+		// Associate handlers with buttons.
+		startButton.onclick = createConnection;
+		sendButton.onclick = sendData;
+		closeButton.onclick = closeDataChannels;
+
+		// Helper function to log info on the page & to the console.
+		function log(msg) {
+			var clientLogEl = document.getElementById("log");
+			clientLogEl.innerHTML += msg + "<br />";
+			console.log((performance.now() / 1000).toFixed(3) + ": " + msg);
+		}
+
+		function createConnection() {
+			// Optional config associated with NAT traversal.
+			var servers = null;
+
+			// Associate constraints
+			var constraints = {
+				optional: [{
+						RtpDataChannels: true
+				}, {
+					DtlsSrtpKeyAgreement: true
+				}]
+			};
+
+			window.localPeerConnection = new RTCPeerConnection(servers, constraints);
+			log('Created local peer connection object localPeerConnection');
+
+			try {
+				// Reliable data channels is supported from Chrome 29+, Firefox even earlier.
+				sendChannel = localPeerConnection.createDataChannel("sendDataChannel",
+					{reliable: true});
+				log('Created send data channel');
+			} catch (e) {
+				alert('Failed to create data channel. ' +
+							'You need Chrome M25 or later with RtpDataChannel enabled');
+				log('createDataChannel() failed with exception: ' + e.message);
+			}
+
+			// Associate handlers with local peer connection ICE events.
+			localPeerConnection.onicecandidate = gotLocalCandidate;
+
+			// Associate handlers with data channel events.
+			sendChannel.onopen = handleSendChannelStateChange;
+			sendChannel.onclose = handleSendChannelStateChange;
+
+			// Mock a remote peer connection
+			window.remotePeerConnection = new RTCPeerConnection(servers, constraints);
+			log('Created remote peer connection object remotePeerConnection');
+
+			// Associate handlers with remote peer connection ICE events.
+			remotePeerConnection.onicecandidate = gotRemoteIceCandidate;
+			// ... also data channel creation event.
+			remotePeerConnection.ondatachannel = gotReceiveChannel;
+
+			// Good to go! Negotiate a session.
+			localPeerConnection.createOffer(gotLocalDescription,handleError);
+
+			// Disable start and enable close.
+			startButton.disabled = true;
+			closeButton.disabled = false;
+		}
+
+		// Handler for sending data to remove peer.
+		function sendData() {
+			var data = document.getElementById("dataChannelSend").value;
+			sendChannel.send(data);
+			log('Sent data: ' + data);
+		}
+
+		// Close button handler.
+		function closeDataChannels() {
+			// Close channels.
+			log('Closing data channels');
+			sendChannel.close();
+			log('Closed data channel with label: ' + sendChannel.label);
+			receiveChannel.close();
+			log('Closed data channel with label: ' + receiveChannel.label);
+
+			// Close connections.
+			localPeerConnection.close();
+			remotePeerConnection.close();
+			localPeerConnection = null;
+			remotePeerConnection = null;
+			log('Closed peer connections');
+
+			// Rollback to initial state.
+			startButton.disabled = false;
+			sendButton.disabled = true;
+			closeButton.disabled = true;
+			dataChannelSend.value = "";
+			dataChannelReceive.value = "";
+			dataChannelSend.disabled = true;
+			dataChannelSend.placeholder = "Press Start, enter some text, then press Send.";
+		}
+
+		// Handler to be called as soon as the local SDP becomes available.
+		function gotLocalDescription(desc) {
+			// Set local SDP as the SDP (local/remote) for both local & remote parties.
+			localPeerConnection.setLocalDescription(desc);
+			log('Offer from localPeerConnection \n' + desc.sdp);
+			remotePeerConnection.setRemoteDescription(desc);
+
+			// Create answer from the remote party, based on the local sdp.
+			remotePeerConnection.createAnswer(gotRemoteDescription,handleError);
+		}
+
+		// Handler to be called as soon as the remote SDP becomes available.
+		function gotRemoteDescription(desc) {
+			// Set remote SDP as the SDP (remote/local) for both remote & local parties.
+			remotePeerConnection.setLocalDescription(desc);
+			log('Answer from remotePeerConnection \n' + desc.sdp);
+			localPeerConnection.setRemoteDescription(desc);
+		}
+
+		// Handler to be called when a new local ICE candidate becomes available.
+		function gotLocalCandidate(event) {
+			log('local ice callback');
+			if (event.candidate) {
+				remotePeerConnection.addIceCandidate(event.candidate);
+				log('Local ICE candidate: \n' + event.candidate.candidate);
+			}
+		}
+
+		// Handler to be called when a new remote ICE candidate becomes available.
+		function gotRemoteIceCandidate(event) {
+			log('remote ice callback');
+			if (event.candidate) {
+				localPeerConnection.addIceCandidate(event.candidate);
+				log('Remote ICE candidate: \n ' + event.candidate.candidate);
+			}
+		}
+
+		// Handler associate with the management of remote peer's data channel events.
+		function gotReceiveChannel(event) {
+			log('Receive Channel Callback');
+			// Get channel information.
+			receiveChannel = event.channel;
+			// Associate handlers for message, open & close.
+			receiveChannel.onmessage = handleMessage;
+			receiveChannel.onopen = handleReceiveChannelStateChange;
+			receiveChannel.onclose = handleReceiveChannelStateChange;
+		}
+
+		// Message event handler.
+		function handleMessage(event) {
+			log('Received message: ' + event.data);
+			document.getElementById("dataChannelReceive").value = event.data;
+			document.getElementById("dataChannelSend").value = "";
+		}
+
+		// Handler for open & close events on sender's data channel.
+		function handleSendChannelStateChange() {
+			var readyState = sendChannel.readyState;
+			log('Send channel state is: ' + readyState);
+			if (readyState == "open") {
+				dataChannelSend.disabled = false;
+				dataChannelSend.focus();
+				dataChannelSend.placeholder = "";
+				sendButton.disabled = false;
+				closeButton.disabled = false;
+			} else { // must be close.
+				dataChannelSend.disabled = true;
+				sendButton.disabled = true;
+				closeButton.disabled = true;
+			}
+		}
+
+		// Handler for open & close events on receiver's data channel.
+		function handleReceiveChannelStateChange() {
+			var readyState = receiveChannel.readyState;
+			log('Receive channel state is: ' + readyState);
+		}
+
+		function handleError(){}
+	</script>
+</body>

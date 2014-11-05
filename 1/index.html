@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>JSChannel - WebRTC Fundamentals</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta name="description" content="Demos for the JSChannel WebRTC October Meetup">
+	<meta name="author" content="Santhosh Reddy">
+	<link href="/lib/bs3.2/css/bootstrap.min.css" rel="stylesheet">
+	<link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+	<div class="navbar navbar-default navbar-fixed-top" role="navigation">
+		<div class="container-fluid">
+			<div class="navbar-header">
+			  <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target=".navbar-collapse">
+					<span class="sr-only">Toggle navigation</span>
+					<span class="icon-bar"></span>
+					<span class="icon-bar"></span>
+					<span class="icon-bar"></span>
+			  </button>
+			  <a class="navbar-brand" href="/">JSChannel WebRTC</a>
+			</div>
+			<div class="collapse navbar-collapse">
+				<ul class="nav navbar-nav">
+					<li class="active"><a href="#">Get User Media &amp; Constraints</a></li>
+					<li><a href="/2/">Peer Connections</a></li>
+					<li><a href="/3/">Data Channels</a></li>
+					<li><a href="/4/">Signaling</a></li>
+					<li><a href="/5/">SimpleWebRTC</a></li>
+				</ul>
+			</div><!--/.nav-collapse -->
+		</div>
+	</div>
+	<br />
+	<div class="container-fluid">
+		<div class="row">
+			<div class="col-sm-6">
+				Constraints: 
+				<a id="qvga" type="button" class="btn btn-sm btn-default"><i class="glyphicon glyphicon-phone text-primary"></i> 320 x 180</a>
+				<a id="vga" type="button" class="btn btn-sm btn-default"><i class="glyphicon glyphicon-sd-video text-success"></i> 640 x 360</a>
+				<a id="hd" type="button" class="btn btn-sm btn-default"><i class="glyphicon glyphicon-hd-video text-warning"></i> 1280 x 720</a>
+			</div>
+			<div class="col-sm-6">
+				Misc:
+				<a id="getSources" type="button" class="btn btn-sm btn-default"><i class="glyphicon glyphicon-picture text-primary"></i> Get Sources & Take Snapshots</a>
+				<a id="filters" type="button" class="btn btn-sm btn-default"><i class="glyphicon glyphicon-filter text-success"></i> CSS Filters</a>
+			</div>
+		</div>
+		<br />
+		<div class="row">
+			<div class="col-sm-6">
+				<video id="demo1Video" autoplay></video>
+			</div>
+			<div class="col-sm-6">
+				<img src="" alt="">
+				<canvas style="display:none;"></canvas>
+			</div>
+		</div>
+	</div><!-- /.container -->
+
+	<script>
+
+		var stream;
+
+		// 320 x 240
+		var qvgaConstraints = {
+			video: {
+				mandatory: {
+					maxWidth: 320,
+					maxHeight: 180
+				}
+			}
+		};
+
+		// 640 x 480
+		var vgaConstraints = {
+			video: {
+				mandatory: {
+					maxWidth: 640,
+					maxHeight: 360
+				}
+			}
+		};
+
+		// HD
+		var hdConstraints = {
+			video: {
+				mandatory: {
+					minWidth: 1280,
+					minHeight: 720
+				}
+			}
+		};
+
+		// For taking snapshots.
+		var canvas = document.querySelector("canvas"),
+			context = canvas.getContext("2d"),
+			streaming = false,
+			width = 640,
+			height = 360;
+
+		// Constraints demo buttons.
+		var vgaBtn = document.getElementById("vga"),
+			qvgaBtn = document.getElementById("qvga"),
+			hdBtn = document.getElementById("hd"),
+			getSourcesBtn = document.getElementById("getSources");
+			filtersBtn = document.getElementById("filters");
+
+		/*
+		Take care of different vendors: Opera, Chrome & Firefox
+		 */
+		navigator.getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+
+		var video = document.getElementById("demo1Video");
+
+		// Success callback
+		function successCallback(stream) {
+			window.stream = stream;
+
+			if(window.URL) {
+				// Chrome
+				video.src = window.URL.createObjectURL(stream);
+			} else {
+				// Opera & Firefox
+				video.src = stream;
+			}
+
+			video.play();
+		}
+
+		// Error callback
+		function errorCallback(error) {
+			console.log("getUserMedia error", error);
+		}
+
+		// Here you go!
+		// navigator.getUserMedia(constraints, success, error);
+
+		vgaBtn.onclick = function(e) {
+			getMedia(vgaConstraints);
+		};
+
+		qvgaBtn.onclick = function(e) {
+			getMedia(qvgaConstraints);
+		};
+
+		hdBtn.onclick = function(e) {
+			getMedia(hdConstraints);
+		};
+
+		getSourcesBtn.onclick = function(e) {
+			MediaStreamTrack.getSources(function(sourceInfos) {
+				var audioSource = null;
+				var videoSource = null;
+				for (var i = 0; i != sourceInfos.length; ++i) {
+					var sourceInfo = sourceInfos[i];
+					if (sourceInfo.kind === 'audio') {
+						console.log(sourceInfo.id, sourceInfo.label || 'microphone');
+						audioSource = sourceInfo.id;
+					} else if (sourceInfo.kind === 'video') {
+						console.log(sourceInfo.id, sourceInfo.label || 'camera');
+						videoSource = sourceInfo.id;
+					} else {
+						console.log('Some other kind of source: ', sourceInfo);
+					}
+				}
+
+				var constraints = {
+					audio: {
+						optional: [{sourceId: audioSource}]
+					},
+					video: {
+						optional: [{sourceId: videoSource}],
+						mandatory: {
+							maxWidth: 640,
+							maxHeight: 360
+						}
+					}
+				};
+
+				getMedia(constraints);
+
+				// Taking snapshots.
+				video.addEventListener("click", snapshot, false);
+
+				video.addEventListener('canplay', function(ev){
+					if (!streaming) {
+						// height = video.videoHeight / (video.videoWidth/width);
+						video.setAttribute('width', width);
+						video.setAttribute('height', height);
+						canvas.setAttribute('width', width);
+						canvas.setAttribute('height', height);
+						streaming = true;
+					}
+				}, false);
+			});
+		};
+
+		filtersBtn.onclick = function(e) {
+			getMedia(vgaConstraints);
+			document.querySelector('img').src = "";
+			video.removeEventListener("click", snapshot);
+			video.addEventListener("click", changeFilter, false);
+		}
+
+		function getMedia(constraints) {
+			if(!!stream) {
+				video.src = null;
+				stream.stop();
+			}
+			navigator.getUserMedia(constraints, successCallback, errorCallback);
+		}
+
+		// Take snapshopts and draw them on a canvas.
+		function snapshot() {
+			if(stream) {
+				canvas.width = width;
+				canvas.height = height;
+				context.drawImage(video, 0, 0, width, height);
+				// "image/webp" works in Chrome.
+				// Other browsers will fall back to image/png.
+				document.querySelector('img').src = canvas.toDataURL('image/webp');
+			}
+		}
+
+		var i = 0;
+		var filters = ['grayscale', 'sepia', 'blur', 'brightness', 'contrast', 'hue-rotate', 'hue-rotate2', 'hue-rotate3', 'saturate', 'invert', ''];
+
+		// Apply filters on the video.
+		function changeFilter(e) {
+			var elm = e.target;
+			elm.className = '';
+			var selectedEffect = filters[i++ % filters.length] // Loop through filters.
+			if(selectedEffect) {
+				elm.classList.add(selectedEffect);
+			}
+		}
+
+	</script>
+</body>
+</html>
